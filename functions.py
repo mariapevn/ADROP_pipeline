@@ -12,6 +12,17 @@ from numpy.lib.recfunctions import unstructured_to_structured
 import logging
 import sys
 
+def get_gain(ds, i, j):    
+    vars = ['gain_nom', 'gain_denom', 'gain_last_jd', 'gain_noise']
+    gain = {}
+    if 'gain_nom' in ds.keys():   
+        for var in vars:   
+            gain[var] = ds[var][i,j]        
+    else:
+        gain = None
+    return (gain)
+    
+
 def average_ssm_to_zarr(input_dir, output_zarr):
     # DIR_IN = Path("test_ssm/ssm_nc/E042N012_BCnotav/E042N012_basic")
     # output_zarr = 'test_ssm/ssm_zarr/ssm_summer_2026_av_basic.zarr'
@@ -113,15 +124,15 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
     input_file = ssm_zarr #'test_ssm/ssm_zarr/ssm_summer_2026_BCav.zarr'
 
     # output dataset path, the output dataset will contain the following variable: swi_10, time, x, y 
-    output_filename = 'test_ssm/swi_pyswi_zarr/swi10_summer_2026_pyswi_BCav_tapered.zarr'
+    output_filename = ssm_zarr
 
     # reading ssm data from zarr
     zarr.consolidate_metadata(input_file)
     ds = xr.open_zarr(input_file, consolidated=True, decode_cf=True)
 
     #ssm_root = zarr.open(filename, mode='r')
-    ssm_data = ds['surface_soil_moisture'].values[:,:,8:]
-    time = ds['time'].values[8:]
+    ssm_data = ds['surface_soil_moisture'].values
+    time = ds['time'].values
     x_coords = ds['x'].values
     y_coords = ds['y'].values
 
@@ -148,6 +159,11 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
                 valid_pixels.append((i, j))
     print(f"Found {len(valid_pixels)} valid pixels out of {nx*ny}")
 
+    nom = np.full((nx, ny), np.nan, dtype=np.float32)
+    denom = np.full((nx, ny), np.nan, dtype=np.float32)
+    denom = np.full((nx, ny), np.nan, dtype=np.float32)
+    last_jd = np.full((nx, ny), np.nan, dtype=np.float32)
+    nom_noise = np.full((nx, ny), np.nan, dtype=np.float32)
     # process each pixel: time series of SSM values is extracted, 
     # sorted by time, and passed to the SWI calculation function
     for idx, (i, j) in enumerate(valid_pixels):
@@ -173,7 +189,8 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
             dtype=dtype
         )
 
-        # calculate SWI time series for the pixel using pyswi package    
+        # calculate SWI time series for the pixel using pyswi package        
+        gain_in = get_gain(ds, i, j)
 
         swi_result, gain_out = calc_swi_ts(
             ssm_ts=ssm_ts,
@@ -182,6 +199,12 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
             gain_in=None
         )
 
+        # save gain to the array 
+        nom[i,j] = gain_out['nom'][0]
+        denom[i,j] = gain_out['denom'][0]
+        last_jd[i,j] = gain_out['last_jd']
+        nom_noise[i,j] = gain_out['nom_noise'][0]
+
         swi_full = np.full(len(juldates_pixel), np.nan, dtype=np.float32)
         swi_full[valid_mask] = swi_result['swi_10']
         
@@ -189,8 +212,11 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
 
     ds_out = xr.Dataset(
         data_vars={
-            "swi_10": (("x", "y", "time"), swi10_output)
-
+            "swi_10": (("x", "y", "time"), swi10_output),
+            "gain_nom":(("x", "y"), nom),
+            "gain_denom":(("x", "y"), denom),
+            "gain_last_jd":(("x", "y"), last_jd),
+            "gain_noise":(("x", "y"), last_jd)
         },
         coords={
             "x": x_coords,
@@ -199,14 +225,17 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
         },
     )
 
-    ds_out.to_zarr(output_filename, mode="w", zarr_version=2)
-    print(f"SWI10 saved to {output_filename}")
+    ds_out.to_zarr(output_filename, mode="a", zarr_version=2)
+    print(f"SWI10 added to {output_filename}")
 
 
 def main():
     path_to_ssm_nc = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_nc/E042N012_BCnotav/E042N012_add'
     output_zarr = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_zarr/E042N012_add.zarr'
-    average_ssm_to_zarr(path_to_ssm_nc, output_zarr)
+    #average_ssm_to_zarr(path_to_ssm_nc, output_zarr)
+
+    ssm_zarr = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_zarr/E042N012_basic.zarr'
+    pyswi_run(ssm_zarr, basic_zarr=None)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
