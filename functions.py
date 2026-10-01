@@ -12,14 +12,22 @@ from numpy.lib.recfunctions import unstructured_to_structured
 import logging
 import sys
 
-def get_gain(ds, i, j):    
-    vars = ['gain_nom', 'gain_denom', 'gain_last_jd', 'gain_noise']
+def get_gain(ds, i, j):        
+    vars_ds = ['gain_nom', 'gain_denom', 'gain_last_jd', 'gain_noise']
+    vars_gain = ['nom', 'denom', 'last_jd', 'noise']
     gain = {}
-    if 'gain_nom' in ds.keys():   
-        for var in vars:   
-            gain[var] = ds[var][i,j]        
-    else:
+
+    if ds is None:
         gain = None
+    else:
+        if 'gain_nom' in ds.keys():   
+            for var_ds, var_gain in zip(vars_ds, vars_gain):
+                if var_ds=='gain_last_jd':
+                    gain[var_gain] = ds[var_ds].values[i,j]
+                else:
+                    gain[var_gain] = np.atleast_1d(ds[var_ds].values[i,j])
+        else:
+            gain = None
     return (gain)
     
 
@@ -161,7 +169,6 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
 
     nom = np.full((nx, ny), np.nan, dtype=np.float32)
     denom = np.full((nx, ny), np.nan, dtype=np.float32)
-    denom = np.full((nx, ny), np.nan, dtype=np.float32)
     last_jd = np.full((nx, ny), np.nan, dtype=np.float32)
     nom_noise = np.full((nx, ny), np.nan, dtype=np.float32)
     # process each pixel: time series of SSM values is extracted, 
@@ -189,16 +196,20 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
             dtype=dtype
         )
 
-        # calculate SWI time series for the pixel using pyswi package        
-        gain_in = get_gain(ds, i, j)
+        # calculate SWI time series for the pixel using pyswi package    
+        if basic_zarr==None:
+            ds_basic = None
+        else:
+            ds_basic = xr.open_zarr(basic_zarr, consolidated=True, decode_cf=True)
 
+        gain_in = get_gain(ds_basic, i, j)
         swi_result, gain_out = calc_swi_ts(
             ssm_ts=ssm_ts,
             swi_jd=juldates_valid,
             t_value=t_value,
-            gain_in=None
+            gain_in=gain_in
         )
-
+        print(gain_out)
         # save gain to the array 
         nom[i,j] = gain_out['nom'][0]
         denom[i,j] = gain_out['denom'][0]
@@ -234,8 +245,11 @@ def main():
     output_zarr = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_zarr/E042N012_add.zarr'
     #average_ssm_to_zarr(path_to_ssm_nc, output_zarr)
 
-    ssm_zarr = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_zarr/E042N012_basic.zarr'
-    pyswi_run(ssm_zarr, basic_zarr=None)
+    #ssm_zarr = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_zarr/E042N012_basic.zarr'
+    basic_zarr = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_zarr/E042N012_basic.zarr'
+    ssm_zarr = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_zarr/E042N012_add.zarr'
+    #pyswi_run(ssm_zarr, basic_zarr=None)
+    pyswi_run(ssm_zarr, basic_zarr=basic_zarr)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
