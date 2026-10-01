@@ -12,23 +12,18 @@ from numpy.lib.recfunctions import unstructured_to_structured
 import logging
 import sys
 
-def get_gain(ds, i, j):        
-    vars_ds = ['gain_nom', 'gain_denom', 'gain_last_jd', 'gain_noise']
-    vars_gain = ['nom', 'denom', 'last_jd', 'noise']
-    gain = {}
-
-    if ds is None:
-        gain = None
-    else:
-        if 'gain_nom' in ds.keys():   
-            for var_ds, var_gain in zip(vars_ds, vars_gain):
-                if var_ds=='gain_last_jd':
-                    gain[var_gain] = ds[var_ds].values[i,j]
-                else:
-                    gain[var_gain] = np.atleast_1d(ds[var_ds].values[i,j])
-        else:
-            gain = None
-    return (gain)
+      
+def get_gain(gain_last, i, j):
+    if gain_last is None:
+        return None
+    if 'gain_nom' not in gain_last.keys():
+        return None
+    return {
+        'nom':        np.asarray([gain_last['gain_nom'][i, j]],     dtype=np.float64),
+        'denom':      np.asarray([gain_last['gain_denom'][i, j]],   dtype=np.float64),
+        'last_jd':    float(gain_last['gain_last_jd'][i, j]),
+        'nom_noise':  np.asarray([gain_last['gain_noise'][i, j]],   dtype=np.float64),
+    }
     
 
 def average_ssm_to_zarr(input_dir, output_zarr):
@@ -167,14 +162,26 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
                 valid_pixels.append((i, j))
     print(f"Found {len(valid_pixels)} valid pixels out of {nx*ny}")
 
-    nom = np.full((nx, ny), np.nan, dtype=np.float32)
-    denom = np.full((nx, ny), np.nan, dtype=np.float32)
-    last_jd = np.full((nx, ny), np.nan, dtype=np.float32)
-    nom_noise = np.full((nx, ny), np.nan, dtype=np.float32)
+    nom = np.full((nx, ny), np.nan, dtype=np.float64)
+    denom = np.full((nx, ny), np.nan, dtype=np.float64)
+    last_jd = np.full((nx, ny), np.nan, dtype=np.float64)
+    nom_noise = np.full((nx, ny), np.nan, dtype=np.float64)
+
+    if basic_zarr==None:
+        gain_last = None
+    else:
+        ds_basic = xr.open_zarr(basic_zarr, consolidated=True, decode_cf=True)
+        gain_last = {}
+        gain_last['gain_nom'] = ds['gain_nom'].values
+        gain_last['gain_denom'] = ds['gain_denom'].values
+        gain_last['gain_last_jd'] = ds['gain_last_jd'].values
+        gain_last['gain_noise'] = ds['gain_noise'].values
+
     # process each pixel: time series of SSM values is extracted, 
     # sorted by time, and passed to the SWI calculation function
+
     for idx, (i, j) in enumerate(valid_pixels):
-        if (idx + 1) % 10000 == 0:
+        if (idx + 1) % 1000 == 0:
             print(f"Processed {idx + 1}/{len(valid_pixels)} valid pixels")
         
         ssm = ssm_data[i, j, sort_idx].copy()
@@ -197,19 +204,16 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
         )
 
         # calculate SWI time series for the pixel using pyswi package    
-        if basic_zarr==None:
-            ds_basic = None
-        else:
-            ds_basic = xr.open_zarr(basic_zarr, consolidated=True, decode_cf=True)
 
-        gain_in = get_gain(ds_basic, i, j)
+
+        gain_in = get_gain(gain_last, i, j)
         swi_result, gain_out = calc_swi_ts(
             ssm_ts=ssm_ts,
             swi_jd=juldates_valid,
             t_value=t_value,
             gain_in=gain_in
         )
-        print(gain_out)
+
         # save gain to the array 
         nom[i,j] = gain_out['nom'][0]
         denom[i,j] = gain_out['denom'][0]
@@ -227,7 +231,7 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
             "gain_nom":(("x", "y"), nom),
             "gain_denom":(("x", "y"), denom),
             "gain_last_jd":(("x", "y"), last_jd),
-            "gain_noise":(("x", "y"), last_jd)
+            "gain_noise":(("x", "y"), nom_noise)
         },
         coords={
             "x": x_coords,
