@@ -172,10 +172,10 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
     else:
         ds_basic = xr.open_zarr(basic_zarr, consolidated=True, decode_cf=True)
         gain_last = {}
-        gain_last['gain_nom'] = ds['gain_nom'].values
-        gain_last['gain_denom'] = ds['gain_denom'].values
-        gain_last['gain_last_jd'] = ds['gain_last_jd'].values
-        gain_last['gain_noise'] = ds['gain_noise'].values
+        gain_last['gain_nom'] = ds_basic['gain_nom'].values
+        gain_last['gain_denom'] = ds_basic['gain_denom'].values
+        gain_last['gain_last_jd'] = ds_basic['gain_last_jd'].values
+        gain_last['gain_noise'] = ds_basic['gain_noise'].values
 
     # process each pixel: time series of SSM values is extracted, 
     # sorted by time, and passed to the SWI calculation function
@@ -247,7 +247,7 @@ def pyswi_run(ssm_zarr, basic_zarr=None):
 def main():
     path_to_ssm_nc = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_nc/E042N012_BCnotav/E042N012_add'
     output_zarr = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_zarr/E042N012_add.zarr'
-    #average_ssm_to_zarr(path_to_ssm_nc, output_zarr)
+    average_ssm_to_zarr(path_to_ssm_nc, output_zarr)
 
     #ssm_zarr = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_zarr/E042N012_basic.zarr'
     basic_zarr = '/home/mpanfilo/Documents/PROJECTS/A-DROP/ADO_NRT_DIREX/pyswi_tests/test_ssm/ssm_zarr/E042N012_basic.zarr'
